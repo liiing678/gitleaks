@@ -1,6 +1,8 @@
 package report
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strings"
@@ -27,6 +29,14 @@ type Finding struct {
 
 	// Captured secret
 	Secret string
+
+	// SecretHash is the SHA-256 hex digest of the captured Secret.
+	// It is populated when a finding is redacted so that redacted reports
+	// (e.g. baselines generated with --redact) can still detect when the
+	// underlying secret value changes without persisting the plaintext secret.
+	// It is omitted from unredacted reports thanks to the omitempty tag, so
+	// normal (unredacted) output keeps its historical shape.
+	SecretHash string `json:",omitempty"`
 
 	// File is the name of the file containing the finding
 	File        string
@@ -76,13 +86,28 @@ func (f *Finding) AddRequiredFindings(afs []*RequiredFinding) {
 
 // Redact removes sensitive information from a finding.
 func (f *Finding) Redact(percent uint) {
+	// Persist a non-reversible digest of the secret before masking it.
+	// This keeps redacted baselines able to distinguish an unchanged secret
+	// from a rotated one without writing the plaintext value back to disk.
+	plaintextSecret := f.Secret
+	if f.SecretHash == "" {
+		f.SecretHash = HashSecret(plaintextSecret)
+	}
 	secret := maskSecret(f.Secret, percent)
 	if percent >= 100 {
 		secret = "REDACTED"
 	}
-	f.Line = strings.ReplaceAll(f.Line, f.Secret, secret)
-	f.Match = strings.ReplaceAll(f.Match, f.Secret, secret)
+	f.Line = strings.ReplaceAll(f.Line, plaintextSecret, secret)
+	f.Match = strings.ReplaceAll(f.Match, plaintextSecret, secret)
 	f.Secret = secret
+}
+
+// HashSecret returns the SHA-256 hex digest of the given secret.
+// The digest is deterministic and one-way: it never reveals the secret value,
+// but two findings carrying the same secret produce the same digest.
+func HashSecret(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
+	return hex.EncodeToString(sum[:])
 }
 
 func maskSecret(secret string, percent uint) string {

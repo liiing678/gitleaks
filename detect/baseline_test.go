@@ -42,6 +42,9 @@ func TestIsNew(t *testing.T) {
 				EndColumn:   30,
 				Match:       "REDACTED",
 				Secret:      "REDACTED",
+				// Findings always carry the digest of the plaintext secret,
+				// even when this test constructs the redacted form by hand.
+				SecretHash:  report.HashSecret("-----BEGIN RSA PRIVATE KEY-----"),
 				File:        "key.txt",
 				Commit:      "6d3ba1f7653822c0f8ac9a9af56daaa2cd8bbcad",
 				Entropy:     5.9834013,
@@ -143,6 +146,153 @@ func TestIsNew(t *testing.T) {
 					Fingerprint: "e55e00ca1690a6b5b612d28b3d9ada3fd1775ac4:key.txt:private-key:1",
 				},
 			},
+			// Legacy redacted baselines do not carry a SecretHash, so the value
+			// comparison is skipped exactly like before SecretHash existed.
+			expect: false,
+		},
+		"not new - redacted baseline with SecretHash, same secret": {
+			findings: report.Finding{
+				RuleID:     "aws-access-key",
+				File:       "main.go",
+				Secret:     "AKIALALEMEL33243OKIA",
+				Match:      "AKIALALEMEL33243OKIA",
+				SecretHash: report.HashSecret("AKIALALEMEL33243OKIA"),
+			},
+			redact: 100,
+			baseline: []report.Finding{
+				{
+					RuleID:     "aws-access-key",
+					File:       "main.go",
+					Secret:     "REDACTED",
+					Match:      "REDACTED",
+					SecretHash: report.HashSecret("AKIALALEMEL33243OKIA"),
+				},
+			},
+			expect: false,
+		},
+		"new - redacted baseline with SecretHash, rotated secret": {
+			findings: report.Finding{
+				RuleID:     "aws-access-key",
+				File:       "main.go",
+				Secret:     "AKIALALEMEL33243OLIA",
+				Match:      "AKIALALEMEL33243OLIA",
+				SecretHash: report.HashSecret("AKIALALEMEL33243OLIA"),
+			},
+			redact: 100,
+			baseline: []report.Finding{
+				{
+					RuleID:     "aws-access-key",
+					File:       "main.go",
+					Secret:     "REDACTED",
+					Match:      "REDACTED",
+					SecretHash: report.HashSecret("AKIALALEMEL33243OKIA"),
+				},
+			},
+			expect: true,
+		},
+		"new - unredacted run against redacted hash baseline, rotated secret": {
+			findings: report.Finding{
+				RuleID:     "aws-access-key",
+				File:       "main.go",
+				Secret:     "AKIALALEMEL33243OLIA",
+				Match:      "AKIALALEMEL33243OLIA",
+				SecretHash: report.HashSecret("AKIALALEMEL33243OLIA"),
+			},
+			redact: 0,
+			baseline: []report.Finding{
+				{
+					RuleID:     "aws-access-key",
+					File:       "main.go",
+					Secret:     "REDACTED",
+					Match:      "REDACTED",
+					SecretHash: report.HashSecret("AKIALALEMEL33243OKIA"),
+				},
+			},
+			expect: true,
+		},
+		"not new - unredacted run against redacted hash baseline, same secret": {
+			findings: report.Finding{
+				RuleID:     "aws-access-key",
+				File:       "main.go",
+				Secret:     "AKIALALEMEL33243OKIA",
+				Match:      "AKIALALEMEL33243OKIA",
+				SecretHash: report.HashSecret("AKIALALEMEL33243OKIA"),
+			},
+			redact: 0,
+			baseline: []report.Finding{
+				{
+					RuleID:     "aws-access-key",
+					File:       "main.go",
+					Secret:     "REDACTED",
+					Match:      "REDACTED",
+					SecretHash: report.HashSecret("AKIALALEMEL33243OKIA"),
+				},
+			},
+			expect: false,
+		},
+		"not new - plaintext unredacted baseline keeps direct comparison": {
+			findings: report.Finding{
+				RuleID: "aws-access-key",
+				File:   "main.go",
+				Secret: "AKIALALEMEL33243OKIA",
+				Match:  "AKIALALEMEL33243OKIA",
+			},
+			redact: 0,
+			baseline: []report.Finding{
+				{
+					RuleID: "aws-access-key",
+					File:   "main.go",
+					Secret: "AKIALALEMEL33243OKIA",
+					Match:  "AKIALALEMEL33243OKIA",
+				},
+			},
+			expect: false,
+		},
+		"new - plaintext unredacted baseline, rotated secret": {
+			findings: report.Finding{
+				RuleID: "aws-access-key",
+				File:   "main.go",
+				Secret: "AKIALALEMEL33243OLIA",
+				Match:  "AKIALALEMEL33243OLIA",
+			},
+			redact: 0,
+			baseline: []report.Finding{
+				{
+					RuleID: "aws-access-key",
+					File:   "main.go",
+					Secret: "AKIALALEMEL33243OKIA",
+					Match:  "AKIALALEMEL33243OKIA",
+				},
+			},
+			expect: true,
+		},
+		"not new - legacy redacted baseline is value-blind to a rotated secret": {
+			findings: report.Finding{
+				RuleID:      "aws-access-key",
+				File:        "main.go",
+				StartLine:   4,
+				Secret:      "REDACTED",
+				Match:       "REDACTED",
+				SecretHash:  report.HashSecret("AKIALALEMEL33243OLIA"),
+				Entropy:     3.0841837,
+				Description: "AWS Access Key",
+				Tags:        []string{"key", "AWS"},
+			},
+			redact: 100,
+			baseline: []report.Finding{
+				{
+					RuleID:      "aws-access-key",
+					File:        "main.go",
+					StartLine:   4,
+					Secret:      "REDACTED",
+					Match:       "REDACTED",
+					Entropy:     3.0841837,
+					Description: "AWS Access Key",
+					Tags:        []string{"key", "AWS"},
+				},
+			},
+			// No SecretHash on the baseline => pre-feature behavior: the value
+			// (and thus the rotation) cannot be observed during a redacted run.
 			expect: false,
 		},
 	}

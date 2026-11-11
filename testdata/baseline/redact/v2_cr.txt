@@ -1,0 +1,5 @@
+package main
+
+// keep a known line anchor below
+// lone CR inside body:// initial credential
+awsToken := "AKIALALEMEL33243OKIA"

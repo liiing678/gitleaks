@@ -19,7 +19,7 @@ func IsNew(finding report.Finding, redact uint, baseline []report.Finding) bool 
 			finding.EndLine == b.EndLine &&
 			finding.StartColumn == b.StartColumn &&
 			finding.EndColumn == b.EndColumn &&
-			(redact > 0 || (finding.Match == b.Match && finding.Secret == b.Secret)) &&
+			secretMatches(finding, redact, b) &&
 			finding.File == b.File &&
 			finding.Commit == b.Commit &&
 			finding.Author == b.Author &&
@@ -32,6 +32,39 @@ func IsNew(finding report.Finding, redact uint, baseline []report.Finding) bool 
 		}
 	}
 	return true
+}
+
+// secretMatches reports whether the secret captured by finding is the same as
+// the one recorded in a baseline entry.
+//
+// Baselines generated with --redact do not contain plaintext secrets, only a
+// one-way SecretHash. When the baseline carries a hash it is authoritative: a
+// rotated secret at the same rule, file and line hashes differently and is
+// therefore treated as a new finding. Baselines produced before SecretHash
+// existed (both redacted and unredacted) keep their legacy behavior so old
+// baselines stay valid:
+//   - redacted runs against old redacted baselines skip the value comparison,
+//   - unredacted runs compare Match and Secret directly.
+func secretMatches(finding report.Finding, redact uint, baseline report.Finding) bool {
+	if baseline.SecretHash != "" {
+		// A redacted finding already carries the digest of its original
+		// plaintext secret. A plaintext finding has no SecretHash yet, so the
+		// digest is computed on demand over the live secret. Either way the
+		// baseline itself never needs to store plaintext.
+		findingHash := finding.SecretHash
+		if findingHash == "" {
+			findingHash = report.HashSecret(finding.Secret)
+		}
+		return findingHash == baseline.SecretHash
+	}
+	// Legacy baselines (written before SecretHash existed) keep their exact
+	// historical behavior: a redacted run has no plaintext to compare, so the
+	// value check is skipped and only location/metadata must match. An
+	// unredacted run compares Match and Secret directly.
+	if redact > 0 {
+		return true
+	}
+	return finding.Match == baseline.Match && finding.Secret == baseline.Secret
 }
 
 func LoadBaseline(baselinePath string) ([]report.Finding, error) {

@@ -1,0 +1,5 @@
+package main
+
+// keep a known line anchor below
+// initial credential
+awsToken := "AKIALALEMEL33243OKIA"

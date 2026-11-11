@@ -1,0 +1,25 @@
+[
+ {
+  "RuleID": "aws-access-key",
+  "Description": "AWS Access Key",
+  "StartLine": 4,
+  "EndLine": 4,
+  "StartColumn": 15,
+  "EndColumn": 34,
+  "Match": "REDACTED",
+  "Secret": "REDACTED",
+  "File": "secrets.txt",
+  "SymlinkFile": "",
+  "Commit": "",
+  "Entropy": 3.1464393,
+  "Author": "",
+  "Email": "",
+  "Date": "",
+  "Message": "",
+  "Tags": [
+   "key",
+   "AWS"
+  ],
+  "Fingerprint": ""
+ }
+]

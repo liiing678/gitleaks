@@ -1,0 +1,26 @@
+[
+ {
+  "RuleID": "aws-access-key",
+  "Description": "AWS Access Key",
+  "StartLine": 4,
+  "EndLine": 4,
+  "StartColumn": 15,
+  "EndColumn": 34,
+  "Match": "REDACTED",
+  "Secret": "REDACTED",
+  "SecretHash": "fc3507e83bd11796be88e6f480e37b4ad896802e669a3df65c9741873935805e",
+  "File": "secrets.txt",
+  "SymlinkFile": "",
+  "Commit": "",
+  "Entropy": 3.1464393,
+  "Author": "",
+  "Email": "",
+  "Date": "",
+  "Message": "",
+  "Tags": [
+   "key",
+   "AWS"
+  ],
+  "Fingerprint": ""
+ }
+]

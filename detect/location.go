@@ -37,18 +37,27 @@ func location(newlineIndices [][]int, raw string, matchIndex []int) Location {
 	for lineNum, pair := range newlineIndices {
 		_lineNum = lineNum
 		newLineByteIndex := pair[0]
+		// Fixes: https://github.com/gitleaks/gitleaks/issues/1641
+		// Treat a carriage return immediately preceding a newline as part of
+		// a CRLF line ending so it is excluded from the line's contents.
+		// Standalone carriage returns are left untouched.
+		endOfLineIndex := newLineByteIndex
+		if newLineByteIndex < len(raw) && raw[newLineByteIndex] == '\n' &&
+			endOfLineIndex > 0 && raw[endOfLineIndex-1] == '\r' {
+			endOfLineIndex--
+		}
 		if prevNewLine <= start && start < newLineByteIndex {
 			lineSet = true
 			location.startLine = lineNum
 			location.endLine = lineNum
 			location.startColumn = (start - prevNewLine) + 1 // +1 because counting starts at 1
 			location.startLineIndex = prevNewLine
-			location.endLineIndex = newLineByteIndex
+			location.endLineIndex = endOfLineIndex
 		}
 		if prevNewLine < end && end <= newLineByteIndex {
 			location.endLine = lineNum
 			location.endColumn = (end - prevNewLine)
-			location.endLineIndex = newLineByteIndex
+			location.endLineIndex = endOfLineIndex
 		}
 
 		prevNewLine = pair[0]

@@ -213,6 +213,52 @@ func TestDetect(t *testing.T) {
 				},
 			},
 		},
+		"detect finding - crlf line endings": {
+			cfgName: "generic",
+			fragment: Fragment{
+				Raw:      "DB_PASSWORD=9bf42bdef252670eeac6c1\r\nDB_SSL=true",
+				FilePath: ".env.crlf",
+			},
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "generic-api-key",
+					Description: "Generic API Key",
+					File:        ".env.crlf",
+					Line:        "DB_PASSWORD=9bf42bdef252670eeac6c1",
+					Match:       "PASSWORD=9bf42bdef252670eeac6c1",
+					Secret:      "9bf42bdef252670eeac6c1",
+					Entropy:     3.6635327,
+					StartLine:   0,
+					EndLine:     0,
+					StartColumn: 4,
+					EndColumn:   34,
+					Tags:        []string{},
+				},
+			},
+		},
+		"detect finding - standalone carriage return is preserved": {
+			cfgName: "generic",
+			fragment: Fragment{
+				Raw:      "DB_PASSWORD=9bf42bdef252670eeac6c1\rDB_SSL=true",
+				FilePath: ".env.crlf",
+			},
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "generic-api-key",
+					Description: "Generic API Key",
+					File:        ".env.crlf",
+					Line:        "DB_PASSWORD=9bf42bdef252670eeac6c1\rDB_SSL=true",
+					Match:       "PASSWORD=9bf42bdef252670eeac6c1\r",
+					Secret:      "9bf42bdef252670eeac6c1",
+					Entropy:     3.6635327,
+					StartLine:   0,
+					EndLine:     0,
+					StartColumn: 4,
+					EndColumn:   35,
+					Tags:        []string{},
+				},
+			},
+		},
 		"detect finding - sidekiq env var": {
 			cfgName: "simple",
 			fragment: Fragment{
@@ -1396,6 +1442,76 @@ func TestFromGitStaged(t *testing.T) {
 	}
 }
 
+// TestFromGitCRLF tests that CRLF line endings in git diffs are normalized
+// the same way as other sources: the carriage return is excluded from
+// Line/Match and columns are consistent with LF line endings.
+func TestFromGitCRLF(t *testing.T) {
+	tests := []struct {
+		cfgName          string
+		source           string
+		expectedFindings []report.Finding
+	}{
+		{
+			source:  filepath.Join(repoBasePath, "crlf"),
+			cfgName: "generic",
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "generic-api-key",
+					Description: "Generic API Key",
+					StartLine:   4,
+					EndLine:     4,
+					StartColumn: 5,
+					EndColumn:   35,
+					Line:        "\nDB_PASSWORD=9bf42bdef252670eeac6c1",
+					Match:       "PASSWORD=9bf42bdef252670eeac6c1",
+					Secret:      "9bf42bdef252670eeac6c1",
+					File:        ".env.crlf",
+					Date:        "2025-06-01T12:00:00Z",
+					Commit:      "f1c50fe80d2d74e4c8e71a2947a7bfdd5912529f",
+					Author:      "Test User",
+					Email:       "user@example.com",
+					Message:     "Add .env.crlf",
+					Tags:        []string{},
+					Entropy:     3.6635327,
+					Fingerprint: "f1c50fe80d2d74e4c8e71a2947a7bfdd5912529f:.env.crlf:generic-api-key:4",
+				},
+			},
+		},
+	}
+
+	moveDotGit(t, "dotGit", ".git")
+	defer moveDotGit(t, ".git", "dotGit")
+
+	for _, tt := range tests {
+		t.Run(tt.cfgName+" - "+tt.source, func(t *testing.T) {
+			viper.AddConfigPath(configPath)
+			viper.SetConfigName(tt.cfgName)
+			viper.SetConfigType("toml")
+			err := viper.ReadInConfig()
+			require.NoError(t, err)
+
+			var vc config.ViperConfig
+			err = viper.Unmarshal(&vc)
+			require.NoError(t, err)
+			cfg, err := vc.Translate()
+			require.NoError(t, err)
+			detector := NewDetector(cfg)
+
+			err = detector.AddGitleaksIgnore(filepath.Join(tt.source, ".gitleaksignore"))
+			require.NoError(t, err)
+
+			gitCmd, err := sources.NewGitLogCmd(tt.source, "")
+			require.NoError(t, err)
+
+			remote := NewRemoteInfo(scm.UnknownPlatform, tt.source)
+			findings, err := detector.DetectGit(gitCmd, remote)
+			require.NoError(t, err)
+
+			assert.ElementsMatch(t, tt.expectedFindings, findings)
+		})
+	}
+}
+
 // TestFromFiles tests the FromFiles function
 func TestFromFiles(t *testing.T) {
 	tests := []struct {
@@ -1472,6 +1588,27 @@ func TestFromFiles(t *testing.T) {
 				},
 			},
 		},
+		{
+			source:  filepath.Join(repoBasePath, "nogit", ".env.crlf"),
+			cfgName: "generic",
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "generic-api-key",
+					Description: "Generic API Key",
+					StartLine:   4,
+					EndLine:     4,
+					StartColumn: 5,
+					EndColumn:   35,
+					Line:        "\nDB_PASSWORD=9bf42bdef252670eeac6c1",
+					Match:       "PASSWORD=9bf42bdef252670eeac6c1",
+					Secret:      "9bf42bdef252670eeac6c1",
+					File:        "../testdata/repos/nogit/.env.crlf",
+					Tags:        []string{},
+					Entropy:     3.6635327,
+					Fingerprint: "../testdata/repos/nogit/.env.crlf:generic-api-key:4",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1508,20 +1645,7 @@ func TestFromFiles(t *testing.T) {
 			findings, err := detector.DetectFiles(paths)
 			require.NoError(t, err)
 
-			// TODO: Temporary mitigation.
-			// https://github.com/gitleaks/gitleaks/issues/1641
-			normalizedFindings := make([]report.Finding, len(findings))
-			for i, f := range findings {
-				if strings.HasSuffix(f.Line, "\r") {
-					f.Line = strings.ReplaceAll(f.Line, "\r", "")
-				}
-				if strings.HasSuffix(f.Match, "\r") {
-					f.EndColumn = f.EndColumn - 1
-					f.Match = strings.ReplaceAll(f.Match, "\r", "")
-				}
-				normalizedFindings[i] = f
-			}
-			assert.ElementsMatch(t, tt.expectedFindings, normalizedFindings)
+			assert.ElementsMatch(t, tt.expectedFindings, findings)
 		})
 	}
 }
@@ -2066,6 +2190,28 @@ func TestDetectWithArchives(t *testing.T) {
 			expireContext:    true,
 			expectedFindings: []report.Finding{},
 		},
+		{
+			source:  filepath.Join(archivesBasePath, "crlf.zip"),
+			cfgName: "archives",
+			expectedFindings: []report.Finding{
+				{
+					RuleID:      "aws-access-key",
+					Description: "AWS Access Key",
+					StartLine:   4,
+					EndLine:     4,
+					StartColumn: 16,
+					EndColumn:   35,
+					Line:        "\n\tawsToken := \"AKIALALEMEL33243OLIA\"",
+					Match:       "AKIALALEMEL33243OLIA",
+					Secret:      "AKIALALEMEL33243OLIA",
+					File:        "../testdata/archives/crlf.zip!crlf.go",
+					SymlinkFile: "",
+					Tags:        []string{"key", "AWS"},
+					Entropy:     3.0841837,
+					Fingerprint: "../testdata/archives/crlf.zip!crlf.go:aws-access-key:4",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2105,20 +2251,7 @@ func TestDetectWithArchives(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			// TODO: Temporary mitigation.
-			// https://github.com/gitleaks/gitleaks/issues/1641
-			normalizedFindings := make([]report.Finding, len(findings))
-			for i, f := range findings {
-				if strings.HasSuffix(f.Line, "\r") {
-					f.Line = strings.ReplaceAll(f.Line, "\r", "")
-				}
-				if strings.HasSuffix(f.Match, "\r") {
-					f.EndColumn = f.EndColumn - 1
-					f.Match = strings.ReplaceAll(f.Match, "\r", "")
-				}
-				normalizedFindings[i] = f
-			}
-			assert.ElementsMatch(t, tt.expectedFindings, normalizedFindings)
+			assert.ElementsMatch(t, tt.expectedFindings, findings)
 		})
 	}
 

@@ -475,6 +475,19 @@ func (d *Detector) detectRule(fragment Fragment, currentRaw string, r config.Rul
 			matchIndex[1] = matchIndex[0] + len(secret)
 		}
 
+		// Fixes: https://github.com/gitleaks/gitleaks/issues/1641
+		// If the match ends with a carriage return that is part of a CRLF
+		// line ending, exclude it from the match so that Match and EndColumn
+		// are consistent regardless of line endings. Standalone carriage
+		// returns are preserved.
+		if matchIndex[1] > matchIndex[0] &&
+			matchIndex[1] < len(fragment.Raw) &&
+			fragment.Raw[matchIndex[1]-1] == '\r' &&
+			fragment.Raw[matchIndex[1]] == '\n' {
+			matchIndex[1]--
+			secret = strings.TrimSuffix(secret, "\r")
+		}
+
 		// determine location of match. Note that the location
 		// in the finding will be the line/column numbers of the _match_
 		// not the _secret_, which will be different if the secretGroup
